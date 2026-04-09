@@ -2,13 +2,13 @@
 
 | Field           | Details                    |
 |-----------------|----------------------------|
-| **Name** | Anurag P |
-| **Email** | anurag.p@kgpian.iitkgp.ac.in |
+| **Name** | Anurag Pokhariyal |
+| **Email** | pokhariyalanurag@gmail.com |
 | **Phone** | [Your Phone Number] |
 | **Country** | India |
 | **Date** | April 10, 2026 |
-| **LinkedIn** | linkedin.com/in/[Your-Profile] |
-| **GitHub** | github.com/AnuragP004/RISC-V_RTL_RAG |
+| **LinkedIn** | linkedin.com/in/anurag-pokhariyal |
+| **GitHub** | github.com/AnuragP004 |
 
 **Project Repository:** https://github.com/AnuragP004/RISC-V_RTL_RAG
 

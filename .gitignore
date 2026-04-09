@@ -1,0 +1,26 @@
+# Environments
+venv/
+.env
+
+# Verilator artifacts
+obj_dir/
+Vtestbench
+sim_main.o
+verilated.o
+
+# Simulation trace dumps
+*.vcd
+simulation_trace.vcd
+
+# Runtime backups and databases
+backups/
+data/
+corpus/chunks/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local script settings
+.fuse_hidden*
+*.swp

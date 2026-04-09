@@ -3,23 +3,23 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║            SILICON REFLEX — Push-Button RV32I Compiler                      ║
 ║                                                                              ║
-║   End-to-end autonomous pipeline:                                            ║
-║     Phase 1 → RAG-driven Verilog generation                                  ║
-║     Phase 2 → Verilator compilation & simulation                             ║
-║     Phase 3 → VCD waveform critic (flatline detection)                       ║
-║     Phase 4 → LLM-driven agentic self-healing loop                           ║
+║   Configuration-driven, CLI-enabled autonomous EDA pipeline:                 ║
+║     --target all   → Generate all modules + Compile + Simulate + Heal        ║
+║     --target <mod> → Generate a single module from processor_spec.json       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
 import os
 import re
 import sys
+import json
 import time
 import shutil
+import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 # ── Third-party ──────────────────────────────────────────────────────────────
 from dotenv import load_dotenv
@@ -38,30 +38,14 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 
 # ── Project Paths ────────────────────────────────────────────────────────────
-PROJECT_ROOT   = Path(__file__).parent.resolve()
-CORE_FILE      = PROJECT_ROOT / "rv32i_core.v"
-VCD_FILE       = PROJECT_ROOT / "simulation_trace.vcd"
-BACKUP_DIR     = PROJECT_ROOT / "backups"
-SIM_BINARY     = PROJECT_ROOT / "obj_dir" / "Vtestbench"
-HEX_FILE       = PROJECT_ROOT / "rv32ui-p-add.hex"
+PROJECT_ROOT = Path(__file__).parent.resolve()
+SPEC_FILE    = PROJECT_ROOT / "processor_spec.json"
+VCD_FILE     = PROJECT_ROOT / "simulation_trace.vcd"
+BACKUP_DIR   = PROJECT_ROOT / "backups"
+SIM_BINARY   = PROJECT_ROOT / "obj_dir" / "Vtestbench"
 
-# All source files that Verilator needs
-VERILOG_SOURCES = [
-    "sim_main.cpp",
-    "testbench.v",
-    "rv32i_core.v",
-    "alu.v",
-    "instruction_decoder.v",
-    "register_file.v",
-    "branch_unit.v",
-    "program_counter.v",
-]
-
-# ── Global Constants ─────────────────────────────────────────────────────────
-
-MAX_HEAL_ITERATIONS = 3
-RESET_TIME = 10   # sim_main.cpp deasserts reset after time=10
-LLM_MODEL = "gemini-2.5-pro"
+# ── Global Hardware Axioms ───────────────────────────────────────────────────
+# Injected into EVERY generation and healing prompt without exception.
 
 HARDWARE_RULES = """\
 Use non-blocking assignments (<=) in clocked blocks. \
@@ -69,27 +53,59 @@ Never use blocking assignments (=) in clocked blocks. \
 Use always @(*) for combinational logic. \
 Provide default assignments to prevent latches."""
 
-# The locked sub-module interfaces — the LLM must NEVER change these ports
-LOCKED_INTERFACES = """\
-1. program_counter: (input clk, reset, [31:0] branch_target, pc_sel, output reg [31:0] pc)
-2. decoder:         (input [31:0] instr, output reg [6:0] opcode, [4:0] rd, [2:0] funct3, [4:0] rs1, [4:0] rs2, [6:0] funct7, [31:0] imm)
-3. register_file:   (input clk, [4:0] rs1, [4:0] rs2, [4:0] rd, [31:0] write_data, reg_write, output [31:0] rs1_data, [31:0] rs2_data)
-4. branch_unit:     (input [31:0] rs1_data, [31:0] rs2_data, [2:0] funct3, output reg branch_taken)
-5. alu:             (input [31:0] a, [31:0] b, [3:0] alu_control, output reg [31:0] result, output zero)"""
 
-# Ground-truth ALU encodings — extracted from alu.v to prevent hallucinated mappings
-ALU_ENCODINGS = """\
-localparam ALU_ADD    = 4'b0000;
-localparam ALU_SUB    = 4'b1000;
-localparam ALU_SLL    = 4'b0001;
-localparam ALU_SLT    = 4'b0010;
-localparam ALU_SLTU   = 4'b0011;
-localparam ALU_XOR    = 4'b0100;
-localparam ALU_SRL    = 4'b0101;
-localparam ALU_SRA    = 4'b1101;
-localparam ALU_OR     = 4'b0110;
-localparam ALU_AND    = 4'b0111;
-localparam ALU_COPY_B = 4'b1111;"""
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  CONFIGURATION LOADER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def load_spec(spec_path: Path) -> Dict[str, Any]:
+    """
+    Load and validate the processor specification JSON.
+    Returns the parsed dict or exits on failure.
+    """
+    if not spec_path.exists():
+        print(f"  ✗ FATAL: Specification file not found: {spec_path}")
+        sys.exit(1)
+
+    try:
+        with open(spec_path, "r") as f:
+            spec = json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"  ✗ FATAL: Invalid JSON in {spec_path.name}: {e}")
+        sys.exit(1)
+
+    # Validate required top-level keys
+    for key in ("project", "modules", "verification", "alu_encodings"):
+        if key not in spec:
+            print(f"  ✗ FATAL: Missing required key '{key}' in {spec_path.name}")
+            sys.exit(1)
+
+    return spec
+
+
+def build_alu_encoding_string(spec: Dict) -> str:
+    """Format ALU encodings from the spec into a Verilog localparam block."""
+    lines = []
+    for name, value in spec["alu_encodings"].items():
+        lines.append(f"localparam {name:12s} = {value};")
+    return "\n".join(lines)
+
+
+def build_locked_interfaces(spec: Dict) -> str:
+    """Build a summary of all sub-module interfaces for the healing prompt."""
+    lines = []
+    for i, (mod_name, mod) in enumerate(spec["modules"].items(), 1):
+        if mod_name != spec["project"]["heal_target"]:
+            lines.append(f"{i}. {mod_name}: {mod['interface'].splitlines()[0]}")
+    return "\n".join(lines)
+
+
+def get_verilog_sources(spec: Dict) -> List[str]:
+    """Build the list of Verilog source files from the spec."""
+    sources = [spec["project"]["sim_driver"], "testbench.v"]
+    for mod_name, mod in spec["modules"].items():
+        sources.append(mod["file"])
+    return sources
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -106,7 +122,6 @@ def banner(text: str, char: str = "═", width: int = 78):
     print(f"╚{char * (width - 2)}╝\n")
 
 def section(title: str):
-    """Print a section header."""
     print(f"\n{'─' * 60}")
     print(f"  {title}")
     print(f"{'─' * 60}")
@@ -131,14 +146,63 @@ def timestamp() -> str:
 #  PHASE 1: RAG-DRIVEN GENERATION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def run_initial_generation():
+def generate_single_module(spec: Dict, module_name: str):
     """
-    Import the generation pipeline and produce all sub-modules + top-level core.
-    Skips generation for any file that already exists on disk.
+    Generate a single module by looking it up in the processor spec.
+    Prepends HARDWARE_RULES to the constraints before calling the LLM.
+    """
+    section(f"📐  GENERATING MODULE: {module_name}")
+
+    if module_name not in spec["modules"]:
+        log_fail(f"Module '{module_name}' not found in processor_spec.json")
+        available = ", ".join(spec["modules"].keys())
+        log_info(f"Available modules: {available}")
+        sys.exit(1)
+
+    # Lazy import
+    try:
+        from pipeline.generate_rtl import generate_component
+    except ImportError as e:
+        log_fail(f"Could not import generate_component: {e}")
+        sys.exit(1)
+
+    mod = spec["modules"][module_name]
+    display_name = mod.get("display_name", module_name)
+    interface = mod["interface"]
+
+    # Build enriched constraints: HARDWARE_RULES + module-specific constraints
+    enriched_constraints = f"[STRICT HARDWARE RULES]\n{HARDWARE_RULES}\n\n"
+
+    # For the top-level core, also inject ALU encodings
+    if mod.get("is_top_level", False):
+        alu_block = build_alu_encoding_string(spec)
+        enriched_constraints += f"[GROUND-TRUTH ALU ENCODINGS — COPY THESE EXACTLY]\n{alu_block}\n\n"
+
+    enriched_constraints += f"[MODULE-SPECIFIC CONSTRAINTS]\n{mod['constraints']}"
+
+    target_file = PROJECT_ROOT / mod["file"]
+    if target_file.exists():
+        log_info(f"{mod['file']} already exists — skipping generation")
+        return
+
+    log_info(f"Generating {display_name}...")
+    generate_component(display_name, interface, enriched_constraints)
+
+    if target_file.exists():
+        log_ok(f"{mod['file']} generated successfully")
+    else:
+        log_fail(f"Failed to generate {mod['file']}")
+        sys.exit(1)
+
+
+def run_initial_generation(spec: Dict):
+    """
+    Generate ALL modules defined in the processor spec.
+    Skips any file that already exists on disk.
     """
     section("📐  PHASE 1: RAG-DRIVEN VERILOG GENERATION")
 
-    # Lazy import — only needed if we actually generate
+    # Lazy import
     try:
         from pipeline.generate_rtl import generate_component
     except ImportError as e:
@@ -146,116 +210,35 @@ def run_initial_generation():
         log_info("Skipping generation — assuming pre-existing Verilog files.")
         return
 
-    # ── Sub-module definitions ──────────────────────────────────────────
-    components = [
-        {
-            "name": "ALU",
-            "file": "alu.v",
-            "interface": """module alu (
-    input  [31:0] a,
-    input  [31:0] b,
-    input  [3:0]  alu_control,
-    output reg [31:0] result,
-    output zero
-);""",
-            "warnings": "Use the ALU_ADD=4'b0000, ALU_SUB=4'b1000 encoding scheme."
-        },
-        {
-            "name": "Program Counter",
-            "file": "program_counter.v",
-            "interface": """module program_counter (
-    input  clk,
-    input  reset,
-    input  [31:0] branch_target,
-    input         pc_sel,
-    output reg [31:0] pc
-);""",
-            "warnings": "On reset, set PC to 0x00000000. If pc_sel=1, load branch_target; else increment by 4."
-        },
-        {
-            "name": "Instruction Decoder",
-            "file": "instruction_decoder.v",
-            "interface": """module decoder (
-    input  [31:0] instr,
-    output reg [6:0]  opcode,
-    output reg [4:0]  rd,
-    output reg [2:0]  funct3,
-    output reg [4:0]  rs1,
-    output reg [4:0]  rs2,
-    output reg [6:0]  funct7,
-    output reg [31:0] imm
-);""",
-            "warnings": "Decode ALL RV32I immediate types: I, S, B, U, J. Sign-extend correctly."
-        },
-        {
-            "name": "Register File",
-            "file": "register_file.v",
-            "interface": """module register_file (
-    input  clk,
-    input  [4:0]  rs1,
-    input  [4:0]  rs2,
-    input  [4:0]  rd,
-    input  [31:0] write_data,
-    input         reg_write,
-    output [31:0] rs1_data,
-    output [31:0] rs2_data
-);""",
-            "warnings": "Register x0 is hardwired to zero. Writes occur on the positive clock edge."
-        },
-        {
-            "name": "Branch Unit",
-            "file": "branch_unit.v",
-            "interface": """module branch_unit (
-    input  [31:0] rs1_data,
-    input  [31:0] rs2_data,
-    input  [2:0]  funct3,
-    output reg    branch_taken
-);""",
-            "warnings": "Implement BEQ, BNE, BLT, BGE, BLTU, BGEU via funct3 decoding."
-        },
-    ]
+    alu_block = build_alu_encoding_string(spec)
 
-    # ── Top-level core definition ──────────────────────────────────────
-    core_def = {
-        "name": "RV32I Core",
-        "file": "rv32i_core.v",
-        "interface": """module rv32i_core (
-    input  clk,
-    input  reset,
-    input  [31:0] instr_mem_data,
-    output [31:0] instr_mem_addr
-);""",
-        "warnings": f"""[CRITICAL ERROR RECOVERY - PORT MISMATCHES]
-You MUST instantiate sub-modules using the EXACT port names below:
-{LOCKED_INTERFACES}
+    for mod_name, mod in spec["modules"].items():
+        target = PROJECT_ROOT / mod["file"]
+        display_name = mod.get("display_name", mod_name)
 
-[GROUND-TRUTH ALU ENCODINGS - COPY THESE EXACTLY]
-{ALU_ENCODINGS}
-
-[ROUTING INSTRUCTIONS]
-- Connect instr_mem_addr to pc.
-- Connect instr_mem_data to decoder's instr input.
-- Declare intermediate wires to route datapath signals.
-- Write a combinational always @(*) block for the control unit.
-- Map alu_control using the EXACT localparam values above."""
-    }
-
-    all_components = components + [core_def]
-
-    for comp in all_components:
-        target = PROJECT_ROOT / comp["file"]
         if target.exists():
-            log_info(f"{comp['file']} already exists — skipping generation")
+            log_info(f"{mod['file']} already exists — skipping generation")
+            continue
+
+        # Build enriched constraints
+        enriched_constraints = f"[STRICT HARDWARE RULES]\n{HARDWARE_RULES}\n\n"
+        if mod.get("is_top_level", False):
+            enriched_constraints += f"[GROUND-TRUTH ALU ENCODINGS — COPY THESE EXACTLY]\n{alu_block}\n\n"
+        enriched_constraints += f"[MODULE-SPECIFIC CONSTRAINTS]\n{mod['constraints']}"
+
+        log_info(f"Generating {display_name}...")
+        generate_component(display_name, mod["interface"], enriched_constraints)
+
+        if target.exists():
+            log_ok(f"{mod['file']} generated successfully")
         else:
-            log_info(f"Generating {comp['name']}...")
-            generate_component(comp["name"], comp["interface"], comp["warnings"])
-            if target.exists():
-                log_ok(f"{comp['file']} generated successfully")
-            else:
-                log_fail(f"Failed to generate {comp['file']}")
+            log_fail(f"Failed to generate {mod['file']}")
 
     # Final check
-    missing = [c["file"] for c in all_components if not (PROJECT_ROOT / c["file"]).exists()]
+    missing = [
+        m["file"] for m in spec["modules"].values()
+        if not (PROJECT_ROOT / m["file"]).exists()
+    ]
     if missing:
         log_fail(f"Missing files after generation: {missing}")
         sys.exit(1)
@@ -267,12 +250,15 @@ You MUST instantiate sub-modules using the EXACT port names below:
 #  PHASE 2: COMPILE & SIMULATE
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def compile_and_simulate() -> Tuple[bool, str]:
+def compile_and_simulate(spec: Dict) -> Tuple[bool, str]:
     """
     Run Verilator to compile the design, then execute the simulation binary.
     Returns (success: bool, error_message: str).
     """
     section("🔧  PHASE 2: COMPILE & SIMULATE")
+
+    top_module = spec["project"]["top_module"]
+    sources = get_verilog_sources(spec)
 
     # ── Step 1: Verilator Compilation ───────────────────────────────────
     verilator_cmd = [
@@ -281,8 +267,8 @@ def compile_and_simulate() -> Tuple[bool, str]:
         "-j", "0",
         "-Wno-fatal",
         "--trace",
-        "--top-module", "testbench",
-    ] + VERILOG_SOURCES
+        "--top-module", top_module,
+    ] + sources
 
     log_info(f"Verilator command: {' '.join(verilator_cmd[:6])} ...")
 
@@ -296,7 +282,6 @@ def compile_and_simulate() -> Tuple[bool, str]:
 
     if result.returncode != 0:
         error_msg = result.stderr.strip()
-        # Filter to actual %Error lines, not warnings
         error_lines = [
             l for l in error_msg.split("\n")
             if "%Error" in l or "error:" in l.lower()
@@ -336,19 +321,6 @@ def compile_and_simulate() -> Tuple[bool, str]:
 #  PHASE 3: VCD WAVEFORM CRITIC
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Signals to monitor for liveness
-MONITORED_SIGNALS = {
-    "pc":        "TOP.testbench.dut.u_program_counter.pc[31:0]",
-    "reg_write": "TOP.testbench.dut.reg_write",
-    "alu_result":"TOP.testbench.dut.u_alu.result[31:0]",
-    "write_data":"TOP.testbench.dut.write_data[31:0]",
-}
-
-# The expected functional result: x3 = 5 + 7 = 12
-EXPECTED_REG    = "TOP.testbench.dut.u_register_file.registers[3][31:0]"
-EXPECTED_VALUE  = 12
-
-
 def _get_inherited_value(tv_pairs: list, boundary: int) -> Optional[str]:
     """
     Return the last signal value at or before the boundary time.
@@ -363,7 +335,8 @@ def _get_inherited_value(tv_pairs: list, boundary: int) -> Optional[str]:
     return inherited
 
 
-def _check_signal_alive(vcd: VCDVCD, label: str, sig_path: str) -> Optional[str]:
+def _check_signal_alive(vcd: VCDVCD, label: str, sig_path: str,
+                        reset_time: int) -> Optional[str]:
     """
     Determine if a signal is flatlined post-reset.
 
@@ -384,10 +357,10 @@ def _check_signal_alive(vcd: VCDVCD, label: str, sig_path: str) -> Optional[str]
         return f"{label}: NO DATA in VCD trace"
 
     # Post-reset transitions
-    post_reset = [(t, v) for t, v in all_tv if t > RESET_TIME]
+    post_reset = [(t, v) for t, v in all_tv if t > reset_time]
 
     # Inherited value at the reset boundary
-    inherited = _get_inherited_value(all_tv, RESET_TIME)
+    inherited = _get_inherited_value(all_tv, reset_time)
 
     # Build the complete set of values active during post-reset execution
     active_values = set()
@@ -401,16 +374,17 @@ def _check_signal_alive(vcd: VCDVCD, label: str, sig_path: str) -> Optional[str]
 
     if len(active_values) <= 1:
         stuck_val = list(active_values)[0]
-        return f"{label}: FLATLINED at {stuck_val} (inherited={inherited}, post_reset_transitions={len(post_reset)})"
+        return (f"{label}: FLATLINED at {stuck_val} "
+                f"(inherited={inherited}, post_reset_transitions={len(post_reset)})")
 
     # Signal is ACTIVE
     return None
 
 
-def check_waveforms() -> List[str]:
+def check_waveforms(spec: Dict) -> List[str]:
     """
     Parse simulation_trace.vcd and verify all monitored signals are alive.
-    Also runs a functional assertion on register x3 for the ADD test.
+    Also runs functional assertions defined in the spec.
 
     Returns a list of diagnostic error strings. Empty list = all pass.
     """
@@ -423,34 +397,43 @@ def check_waveforms() -> List[str]:
     log_ok(f"Parsed VCD: {len(vcd.signals)} signals")
 
     errors = []
+    reset_time = spec["project"]["reset_time"]
+    monitored = spec["verification"]["monitored_signals"]
 
     # ── Signal Liveness Checks ──────────────────────────────────────────
-    for label, sig_path in MONITORED_SIGNALS.items():
-        diag = _check_signal_alive(vcd, label, sig_path)
+    for label, sig_path in monitored.items():
+        diag = _check_signal_alive(vcd, label, sig_path, reset_time)
         if diag:
             print(f"    🔴 {label:30s} → {diag}")
             errors.append(diag)
         else:
             print(f"    🟢 {label:30s} → ACTIVE")
 
-    # ── Functional Assertion: x3 = 12 ──────────────────────────────────
-    section("🎯  PHASE 3b: FUNCTIONAL VERIFICATION")
-    try:
-        sig = vcd[EXPECTED_REG]
-        # Get the final value of x3
-        if sig.tv:
-            final_val_str = sig.tv[-1][1]
-            final_val = int(final_val_str, 2)
-            if final_val == EXPECTED_VALUE:
-                log_ok(f"x3 = {final_val} (expected {EXPECTED_VALUE}) — ADD test PASSED ✅")
+    # ── Functional Assertions ───────────────────────────────────────────
+    func_checks = spec["verification"].get("functional_checks", [])
+    if func_checks:
+        section("🎯  PHASE 3b: FUNCTIONAL VERIFICATION")
+
+    for check in func_checks:
+        sig_path = check["signal"]
+        expected = check["expected_value"]
+        desc = check.get("description", sig_path)
+
+        try:
+            sig = vcd[sig_path]
+            if sig.tv:
+                final_val_str = sig.tv[-1][1]
+                final_val = int(final_val_str, 2)
+                if final_val == expected:
+                    log_ok(f"{desc} — PASSED ✅ (got {final_val})")
+                else:
+                    msg = f"{desc} — FAILED (got {final_val}, expected {expected})"
+                    log_fail(msg)
+                    errors.append(msg)
             else:
-                msg = f"x3 = {final_val} (expected {EXPECTED_VALUE}) — ADD test FAILED"
-                log_fail(msg)
-                errors.append(msg)
-        else:
-            errors.append("x3 register has no data in VCD")
-    except KeyError:
-        log_warn(f"Register signal '{EXPECTED_REG}' not found in VCD — skipping functional check")
+                errors.append(f"{desc}: register has no data in VCD")
+        except KeyError:
+            log_warn(f"Signal '{sig_path}' not found in VCD — skipping check: {desc}")
 
     return errors
 
@@ -459,37 +442,33 @@ def check_waveforms() -> List[str]:
 #  PHASE 4: AGENTIC SELF-HEALING
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _backup_core(iteration: int):
-    """Create a timestamped backup of rv32i_core.v."""
+def _backup_core(core_file: Path, iteration: int):
+    """Create a timestamped backup of the heal target."""
     BACKUP_DIR.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_path = BACKUP_DIR / f"rv32i_core.v.iter_{iteration}_{ts}"
-    shutil.copy2(str(CORE_FILE), str(backup_path))
+    backup_path = BACKUP_DIR / f"{core_file.name}.iter_{iteration}_{ts}"
+    shutil.copy2(str(core_file), str(backup_path))
     log_info(f"Backed up current code → {backup_path.name}")
 
 
-def _sanitize_verilog(raw_text: str) -> Optional[str]:
+def _sanitize_verilog(raw_text: str, module_name: str) -> Optional[str]:
     """
     Extract valid Verilog from the LLM response.
     Strips markdown fences and validates structural integrity.
     """
-    # Remove markdown fences
     text = raw_text
     text = re.sub(r"```(?:verilog|systemverilog|sv)?\s*\n?", "", text)
     text = re.sub(r"```\s*$", "", text, flags=re.MULTILINE)
     text = text.strip()
 
-    # If the LLM output multiple modules, extract only rv32i_core
-    match = re.search(
-        r"(module\s+rv32i_core\b.*?endmodule)",
-        text,
-        re.DOTALL
-    )
+    # Extract only the target module if the LLM output extras
+    pattern = rf"(module\s+{re.escape(module_name)}\b.*?endmodule)"
+    match = re.search(pattern, text, re.DOTALL)
     if match:
         text = match.group(1)
 
     # Validate structural integrity
-    if "module rv32i_core" not in text:
+    if f"module {module_name}" not in text:
         return None
     if "endmodule" not in text:
         return None
@@ -501,20 +480,27 @@ def _sanitize_verilog(raw_text: str) -> Optional[str]:
     return text + "\n"
 
 
-def agentic_heal(errors: List[str], iteration: int) -> bool:
+def agentic_heal(spec: Dict, errors: List[str], iteration: int) -> bool:
     """
     The Silicon Reflex: use VCD diagnostics to prompt the LLM
-    to rewrite the control logic in rv32i_core.v.
+    to rewrite the control logic in the heal target.
 
     Returns True if the file was successfully patched, False on failure.
     """
     section("🤖  PHASE 4: AGENTIC SELF-HEALING")
 
+    heal_target = spec["project"]["heal_target"]
+    core_mod = spec["modules"][heal_target]
+    core_file = PROJECT_ROOT / core_mod["file"]
+    llm_model = spec["project"]["llm_model"]
+    alu_block = build_alu_encoding_string(spec)
+    locked_if = build_locked_interfaces(spec)
+
     # ── Step 1: Backup ──────────────────────────────────────────────────
-    _backup_core(iteration)
+    _backup_core(core_file, iteration)
 
     # ── Step 2: Read current source ────────────────────────────────────
-    current_source = CORE_FILE.read_text()
+    current_source = core_file.read_text()
 
     # ── Step 3: Build the diagnostic prompt ────────────────────────────
     error_block = "\n".join(f"  - {e}" for e in errors)
@@ -526,21 +512,21 @@ You are an expert Verilog RTL engineer debugging a single-cycle RV32I RISC-V pro
 {HARDWARE_RULES}
 
 [GROUND-TRUTH ALU ENCODINGS — COPY THESE EXACTLY]
-{ALU_ENCODINGS}
+{alu_block}
 
 [LOCKED SUB-MODULE INTERFACES — DO NOT CHANGE PORT NAMES]
-{LOCKED_INTERFACES}
+{locked_if}
 
 [VCD DIAGNOSTIC FAILURES]
 The following failures were detected by the automated waveform critic after simulating
-the processor with the rv32ui-p-add test (computes x3 = 5 + 7 = 12):
+the processor with the {spec['project']['test_hex']} test:
 {error_block}
 
-[CURRENT BROKEN SOURCE — rv32i_core.v]
+[CURRENT BROKEN SOURCE — {core_mod['file']}]
 {current_source}
 
 [YOUR TASK]
-Rewrite the COMPLETE rv32i_core.v module to fix the VCD diagnostic failures above.
+Rewrite the COMPLETE {core_mod['file']} module to fix the VCD diagnostic failures above.
 
 CRITICAL REQUIREMENTS:
 1. You MUST keep ALL sub-module instantiations with the EXACT same port connections.
@@ -552,12 +538,12 @@ CRITICAL REQUIREMENTS:
 3. You MUST provide default assignments at the top of the always block.
 4. You MUST NOT change any module ports or sub-module instantiation bindings.
 
-OUTPUT ONLY the complete, valid Verilog for the rv32i_core module.
+OUTPUT ONLY the complete, valid Verilog for the {heal_target} module.
 Do NOT include markdown fences, explanations, or commentary. Just the code."""
 
     # ── Step 4: Call LLM ───────────────────────────────────────────────
-    model = genai.GenerativeModel(LLM_MODEL)
-    log_info(f"Calling {LLM_MODEL} (temperature=0.2)...")
+    model = genai.GenerativeModel(llm_model)
+    log_info(f"Calling {llm_model} (temperature=0.2)...")
 
     t0 = time.time()
     try:
@@ -573,7 +559,7 @@ Do NOT include markdown fences, explanations, or commentary. Just the code."""
 
     # ── Step 5: Sanitize & validate ────────────────────────────────────
     raw_text = response.text
-    clean_code = _sanitize_verilog(raw_text)
+    clean_code = _sanitize_verilog(raw_text, heal_target)
 
     if clean_code is None:
         log_fail("LLM output failed structural validation — skipping overwrite")
@@ -584,70 +570,139 @@ Do NOT include markdown fences, explanations, or commentary. Just the code."""
     old_lines = len(current_source.splitlines())
     new_lines = len(clean_code.splitlines())
 
-    CORE_FILE.write_text(clean_code)
-    log_ok(f"Wrote healed rv32i_core.v ({len(clean_code)} bytes)")
+    core_file.write_text(clean_code)
+    log_ok(f"Wrote healed {core_mod['file']} ({len(clean_code)} bytes)")
     log_info(f"Lines: {old_lines} → {new_lines} (delta: {new_lines - old_lines:+d})")
 
     return True
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  MAIN EXECUTION LOOP
+#  CLI & MAIN EXECUTION LOOP
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="main.py",
+        description="Silicon Reflex — Configuration-driven RV32I Push-Button Compiler",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  python3 main.py                        # Generate all + compile + simulate + heal
+  python3 main.py --target all           # Same as above
+  python3 main.py --target alu           # Generate only the ALU module
+  python3 main.py --target rv32i_core    # Generate only the top-level core
+  python3 main.py --spec custom.json     # Use a custom processor spec
+  python3 main.py --list-modules         # Show available module names
+""",
+    )
+    parser.add_argument(
+        "--target",
+        default="all",
+        help="Module to generate. Use 'all' for full pipeline. (default: all)",
+    )
+    parser.add_argument(
+        "--spec",
+        default=str(SPEC_FILE),
+        help=f"Path to processor specification JSON. (default: {SPEC_FILE.name})",
+    )
+    parser.add_argument(
+        "--list-modules",
+        action="store_true",
+        help="List all available module names from the spec and exit.",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+
+    # ── Load specification ─────────────────────────────────────────────
+    spec = load_spec(Path(args.spec))
+    project = spec["project"]
+
+    # ── --list-modules ─────────────────────────────────────────────────
+    if args.list_modules:
+        print("\nAvailable modules in processor_spec.json:\n")
+        for name, mod in spec["modules"].items():
+            display = mod.get("display_name", name)
+            flag = " ★ (top-level)" if mod.get("is_top_level") else ""
+            print(f"  {name:25s} → {mod['file']:30s} {display}{flag}")
+        print(f"\nUse: python3 main.py --target <module_name>")
+        return
+
+    # ── Single-module generation (--target <name>) ────────────────────
+    if args.target != "all":
+        banner(f"SILICON REFLEX — Single Module: {args.target}")
+        print(f"  Spec     : {args.spec}")
+        print(f"  Target   : {args.target}")
+        print(f"  Time     : {timestamp()}")
+
+        generate_single_module(spec, args.target)
+
+        log_ok(f"Module '{args.target}' generation complete.")
+        log_info("Simulation/healing loop skipped (single-module mode).")
+        return
+
+    # ── Full pipeline (--target all) ──────────────────────────────────
+    heal_target = project["heal_target"]
+    heal_file = spec["modules"][heal_target]["file"]
+    max_iters = project["max_heal_iterations"]
+
     banner("SILICON REFLEX — Push-Button RV32I Compiler")
     print(f"  Project  : {PROJECT_ROOT}")
-    print(f"  Target   : {CORE_FILE.name}")
-    print(f"  Test     : rv32ui-p-add (x3 = 5 + 7 = 12)")
-    print(f"  Max Iters: {MAX_HEAL_ITERATIONS}")
-    print(f"  LLM      : {LLM_MODEL}")
+    print(f"  Spec     : {Path(args.spec).name}")
+    print(f"  Target   : {heal_file}")
+    print(f"  Test     : {project['test_hex']}")
+    print(f"  Max Iters: {max_iters}")
+    print(f"  LLM      : {project['llm_model']}")
     print(f"  Time     : {timestamp()}")
 
-    # ── Phase 1: Generate all Verilog if needed ────────────────────────
-    run_initial_generation()
+    # Phase 1: Generate all Verilog if needed
+    run_initial_generation(spec)
 
-    # ── Phase 2–4: Compile → Critic → Heal loop ──────────────────────
-    for iteration in range(1, MAX_HEAL_ITERATIONS + 1):
-        banner(f"ITERATION {iteration} / {MAX_HEAL_ITERATIONS}  —  {timestamp()}")
+    # Phase 2–4: Compile → Critic → Heal loop
+    for iteration in range(1, max_iters + 1):
+        banner(f"ITERATION {iteration} / {max_iters}  —  {timestamp()}")
 
         # Phase 2: Compile & Simulate
-        compile_ok, compile_err = compile_and_simulate()
+        compile_ok, compile_err = compile_and_simulate(spec)
 
         if not compile_ok:
             log_warn("Compilation failed — attempting LLM repair of syntax errors")
             syntax_errors = [f"COMPILE ERROR: {compile_err[:500]}"]
-            healed = agentic_heal(syntax_errors, iteration)
+            healed = agentic_heal(spec, syntax_errors, iteration)
             if not healed:
                 log_fail("Could not heal syntax errors — aborting")
                 sys.exit(1)
-            continue  # Retry compilation
+            continue
 
         # Phase 3: VCD Waveform Critic
-        errors = check_waveforms()
+        errors = check_waveforms(spec)
 
         if not errors:
             # ── SUCCESS ─────────────────────────────────────────────
+            core_file = PROJECT_ROOT / heal_file
             banner("🎉  SUCCESS — CORE VERIFIED  🎉")
             print(f"  Iteration        : {iteration}")
-            print(f"  Test             : ADD (5 + 7 = 12) PASSED")
+            print(f"  Test             : {project['test_hex']} PASSED")
             print(f"  All signals      : ACTIVE")
-            print(f"  Core file        : {CORE_FILE}")
+            print(f"  Core file        : {core_file}")
             print(f"  VCD trace        : {VCD_FILE}")
             print(f"  Backups          : {BACKUP_DIR}/")
             print()
-            return  # Clean exit
+            return
 
         # Phase 4: Heal
         log_warn(f"Waveform critic found {len(errors)} failure(s) — entering self-heal")
-        healed = agentic_heal(errors, iteration)
+        healed = agentic_heal(spec, errors, iteration)
         if not healed:
             log_fail("Self-heal failed — will retry if iterations remain")
 
     # ── Exhausted all iterations ──────────────────────────────────────
     banner("⚠  MAX ITERATIONS EXHAUSTED")
-    print(f"  The core could not be fully healed in {MAX_HEAL_ITERATIONS} iterations.")
-    print(f"  Last core file : {CORE_FILE}")
+    print(f"  The core could not be fully healed in {max_iters} iterations.")
+    print(f"  Last core file : {PROJECT_ROOT / heal_file}")
     print(f"  Backups        : {BACKUP_DIR}/")
     print(f"  Review the VCD : {VCD_FILE}")
     sys.exit(1)

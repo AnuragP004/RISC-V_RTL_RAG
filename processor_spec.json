@@ -1,0 +1,87 @@
+{
+  "project": {
+    "name": "RV32I Single-Cycle Processor",
+    "top_module": "testbench",
+    "heal_target": "rv32i_core",
+    "max_heal_iterations": 3,
+    "llm_model": "gemini-2.5-pro",
+    "reset_time": 10,
+    "test_hex": "rv32ui-p-add.hex",
+    "sim_driver": "sim_main.cpp"
+  },
+
+  "verification": {
+    "monitored_signals": {
+      "pc":         "TOP.testbench.dut.u_program_counter.pc[31:0]",
+      "reg_write":  "TOP.testbench.dut.reg_write",
+      "alu_result": "TOP.testbench.dut.u_alu.result[31:0]",
+      "write_data": "TOP.testbench.dut.write_data[31:0]"
+    },
+    "functional_checks": [
+      {
+        "signal": "TOP.testbench.dut.u_register_file.registers[3][31:0]",
+        "expected_value": 12,
+        "description": "ADD test: x3 = 5 + 7 = 12"
+      }
+    ]
+  },
+
+  "alu_encodings": {
+    "ALU_ADD":    "4'b0000",
+    "ALU_SUB":    "4'b1000",
+    "ALU_SLL":    "4'b0001",
+    "ALU_SLT":    "4'b0010",
+    "ALU_SLTU":   "4'b0011",
+    "ALU_XOR":    "4'b0100",
+    "ALU_SRL":    "4'b0101",
+    "ALU_SRA":    "4'b1101",
+    "ALU_OR":     "4'b0110",
+    "ALU_AND":    "4'b0111",
+    "ALU_COPY_B": "4'b1111"
+  },
+
+  "modules": {
+    "alu": {
+      "file": "alu.v",
+      "display_name": "ALU",
+      "interface": "module alu (\n    input  [31:0] a,\n    input  [31:0] b,\n    input  [3:0]  alu_control,\n    output reg [31:0] result,\n    output zero\n);",
+      "constraints": "Use the ALU_ADD=4'b0000, ALU_SUB=4'b1000 encoding scheme. Implement ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, and COPY_B (for LUI). The 'zero' flag is high when result == 0."
+    },
+
+    "program_counter": {
+      "file": "program_counter.v",
+      "display_name": "Program Counter",
+      "interface": "module program_counter (\n    input  clk,\n    input  reset,\n    input  [31:0] branch_target,\n    input         pc_sel,\n    output reg [31:0] pc\n);",
+      "constraints": "On reset, set PC to 0x00000000. If pc_sel=1, load branch_target; else increment by 4. Use non-blocking assignments in the clocked block."
+    },
+
+    "instruction_decoder": {
+      "file": "instruction_decoder.v",
+      "display_name": "Instruction Decoder",
+      "interface": "module decoder (\n    input  [31:0] instr,\n    output reg [6:0]  opcode,\n    output reg [4:0]  rd,\n    output reg [2:0]  funct3,\n    output reg [4:0]  rs1,\n    output reg [4:0]  rs2,\n    output reg [6:0]  funct7,\n    output reg [31:0] imm\n);",
+      "constraints": "Decode ALL RV32I immediate types: I, S, B, U, J. Sign-extend correctly. Use always @(*) for pure combinational decode logic."
+    },
+
+    "register_file": {
+      "file": "register_file.v",
+      "display_name": "Register File",
+      "interface": "module register_file (\n    input  clk,\n    input  [4:0]  rs1,\n    input  [4:0]  rs2,\n    input  [4:0]  rd,\n    input  [31:0] write_data,\n    input         reg_write,\n    output [31:0] rs1_data,\n    output [31:0] rs2_data\n);",
+      "constraints": "Register x0 is hardwired to zero. Writes occur on the positive clock edge only when reg_write is asserted. Read ports are combinational."
+    },
+
+    "branch_unit": {
+      "file": "branch_unit.v",
+      "display_name": "Branch Unit",
+      "interface": "module branch_unit (\n    input  [31:0] rs1_data,\n    input  [31:0] rs2_data,\n    input  [2:0]  funct3,\n    output reg    branch_taken\n);",
+      "constraints": "Implement BEQ (000), BNE (001), BLT (100), BGE (101), BLTU (110), BGEU (111) via funct3 decoding. Use always @(*) with default assignment."
+    },
+
+    "rv32i_core": {
+      "file": "rv32i_core.v",
+      "display_name": "RV32I Core (Top-Level Stitcher)",
+      "interface": "module rv32i_core (\n    input  clk,\n    input  reset,\n    input  [31:0] instr_mem_data,\n    output [31:0] instr_mem_addr\n);",
+      "constraints": "[CRITICAL ERROR RECOVERY - PORT MISMATCHES]\nYou MUST instantiate sub-modules using the EXACT port names below:\n1. program_counter: (input clk, reset, [31:0] branch_target, pc_sel, output reg [31:0] pc)\n2. decoder: (input [31:0] instr, output reg [6:0] opcode, [4:0] rd, [2:0] funct3, [4:0] rs1, [4:0] rs2, [6:0] funct7, [31:0] imm)\n3. register_file: (input clk, [4:0] rs1, [4:0] rs2, [4:0] rd, [31:0] write_data, reg_write, output [31:0] rs1_data, [31:0] rs2_data)\n4. branch_unit: (input [31:0] rs1_data, [31:0] rs2_data, [2:0] funct3, output reg branch_taken)\n5. alu: (input [31:0] a, [31:0] b, [3:0] alu_control, output reg [31:0] result, output zero)\n\n[ROUTING INSTRUCTIONS]\n- Connect instr_mem_addr to pc.\n- Connect instr_mem_data to decoder's instr input.\n- Declare intermediate wires to route datapath signals.\n- Write a combinational always @(*) block for the control unit.\n- Map alu_control using the EXACT localparam values from the ALU encodings.",
+      "is_top_level": true
+    }
+  }
+}

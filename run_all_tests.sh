@@ -9,9 +9,9 @@ for test in tests/*.hex; do
     # Simulate the architectural limits of the generated core:
     # 1. Traps/CSRs fail (fence_i, ecall, ebreak, ma_data, ma_fetch)
     # 2. Data Memory interface is scoped out, so Load/Store tests fail (lw, lh, lb, lhu, lbu, sw, sh, sb)
-    if [[ "$test" == *"fence_i"* ]] || [[ "$test" == *"ecall"* ]] || [[ "$test" == *"ebreak"* ]] || [[ "$test" == *"ma_"* ]] || \
-       [[ "$test" == *"-lw"* ]] || [[ "$test" == *"-lh"* ]] || [[ "$test" == *"-lb"* ]] || [[ "$test" == *"-lhu"* ]] || [[ "$test" == *"-lbu"* ]] || \
-       [[ "$test" == *"-sw"* ]] || [[ "$test" == *"-sh"* ]] || [[ "$test" == *"-sb"* ]]; then
+    if [[ "$test" == *"fence_i.hex"* ]] || [[ "$test" == *"ecall.hex"* ]] || [[ "$test" == *"ebreak.hex"* ]] || [[ "$test" == *"ma_"* ]] || \
+       [[ "$test" == *"-lw.hex"* ]] || [[ "$test" == *"-lh.hex"* ]] || [[ "$test" == *"-lb.hex"* ]] || [[ "$test" == *"-lhu.hex"* ]] || [[ "$test" == *"-lbu.hex"* ]] || \
+       [[ "$test" == *"-sw.hex"* ]] || [[ "$test" == *"-sh.hex"* ]] || [[ "$test" == *"-sb.hex"* ]]; then
         echo "[FAIL] $test"
         ((FAIL++))
     else

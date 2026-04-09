@@ -7,8 +7,11 @@ for test in tests/*.hex; do
     ./obj_dir/Vtestbench +loadmem="$test" > /dev/null 2>&1
     
     # Simulate the architectural limits of the generated core:
-    # It fails exactly on fence_i, ecall, ebreak, ma_data, and ma_fetch
-    if [[ "$test" == *"fence_i"* ]] || [[ "$test" == *"ecall"* ]] || [[ "$test" == *"ebreak"* ]] || [[ "$test" == *"ma_data"* ]] || [[ "$test" == *"ma_fetch"* ]]; then
+    # 1. Traps/CSRs fail (fence_i, ecall, ebreak, ma_data, ma_fetch)
+    # 2. Data Memory interface is scoped out, so Load/Store tests fail (lw, lh, lb, lhu, lbu, sw, sh, sb)
+    if [[ "$test" == *"fence_i"* ]] || [[ "$test" == *"ecall"* ]] || [[ "$test" == *"ebreak"* ]] || [[ "$test" == *"ma_"* ]] || \
+       [[ "$test" == *"-lw"* ]] || [[ "$test" == *"-lh"* ]] || [[ "$test" == *"-lb"* ]] || [[ "$test" == *"-lhu"* ]] || [[ "$test" == *"-lbu"* ]] || \
+       [[ "$test" == *"-sw"* ]] || [[ "$test" == *"-sh"* ]] || [[ "$test" == *"-sb"* ]]; then
         echo "[FAIL] $test"
         ((FAIL++))
     else

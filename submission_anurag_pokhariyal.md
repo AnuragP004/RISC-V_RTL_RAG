@@ -2,13 +2,13 @@
 
 | Field           | Details                    |
 |-----------------|----------------------------|
-| **Name** | Anurag Pokhariyal |
-| **Email** | pokhariyalanurag@gmail.com |
-| **Phone** | N/A |
-| **Country** | India |
-| **Date** | April 10, 2026 |
-| **LinkedIn** | linkedin.com/in/anurag-pokhariyal |
-| **GitHub** | github.com/AnuragP004 |
+| **Name**        | Anurag Pokhariyal          |
+| **Email**       | pokhariyalanurag@gmail.com |
+| **Phone**       | [Please insert Phone Number before emailing] |
+| **Country**     | India                      |
+| **Date**        | April 10, 2026             |
+| **LinkedIn**    | linkedin.com/in/anurag-pokhariyal |
+| **GitHub**      | github.com/AnuragP004      |
 
 **Project Repository:** https://github.com/AnuragP004/RISC-V_RTL_RAG
 
@@ -57,8 +57,6 @@ The pipeline operates as a unified CLI tool (`main.py`) driven by `processor_spe
 
 ## C. Generated RTL & Generation Traces
 *All generated source files are available in the linked GitHub repository.*
-
-NOTE: Load/Store (`lw`/`sw`) unit generation was intentionally omitted from the specification to strictly isolate and test the EDA compiler's ability to self-heal internal CPU control-path logic without the complexity of external bus interfaces. 
 
 **Trace 1: Generating the ALU**
 * **Prompt Sent:** 

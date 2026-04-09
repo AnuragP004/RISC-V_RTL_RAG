@@ -76,6 +76,13 @@
       "constraints": "Implement BEQ (000), BNE (001), BLT (100), BGE (101), BLTU (110), BGEU (111) via funct3 decoding. Use always @(*) with default assignment."
     },
 
+    "load_store_unit": {
+      "file": "load_store_unit.v",
+      "display_name": "load_store_unit",
+      "interface": "module load_store_unit (\n    input  [2:0]  funct3,\n    input  [31:0] addr,\n    input  [31:0] write_data,\n    input         mem_read,\n    input         mem_write,\n    output reg [31:0] read_data_out\n);",
+      "constraints": "Implement LW, LH, LB, LHU, LBU, SW, SH, SB based on funct3. Provide default assignments for all combinational outputs."
+    },
+
     "rv32i_core": {
       "file": "rv32i_core.v",
       "display_name": "RV32I Core (Top-Level Stitcher)",

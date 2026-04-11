@@ -4,9 +4,9 @@
 |-----------------|--------------------------------------------------|
 | **Name**        | Anurag Pokhariyal                                |
 | **Email**       | pokhariyalanurag@gmail.com                       |
-| **Phone**       | Available in application email                   |
+| **Phone**       | +91 82733 17155                                  |
 | **Country**     | India                                            |
-| **Date**        | April 11, 2026                                   |
+| **Date**        | April 12, 2026                                   |
 | **LinkedIn**    | https://linkedin.com/in/anurag-pokhariyal        |
 | **GitHub**      | https://github.com/AnuragP004                    |
 
@@ -24,7 +24,7 @@
 |---|---|---|
 | Python | 3.10+ | Pre-installed on most Linux distros |
 | Verilator | 5.x | `sudo apt install verilator` (Debian/Ubuntu) or `sudo pacman -S verilator` (Arch) |
-| Gemini API Key | — | Free from [Google AI Studio](https://aistudio.google.com/) |
+| Gemini API Key | — | Get from [Google AI Studio](https://aistudio.google.com/) |
 
 ### 1. Clone & Setup
 
@@ -525,11 +525,11 @@ EDA generation requires **active, deterministic feedback loops** (simulation-in-
 
 This is not my first RAG system. I have prior experience building production-grade retrieval-augmented generation pipelines:
 
-### Compliance Auto-Responder — RAG for Healthcare Questionnaires
+### Compliance Auto-Responder — RAG for Organization Questionnaires
 
 **Repository:** https://github.com/AnuragP004/almabase
 
-A full-stack RAG application that automates compliance and security questionnaire answering for a healthcare company (MediConnect). The system:
+A full-stack RAG application that automates compliance and security questionnaire answering for any organization. The system:
 
 - **Extracts** questions from uploaded documents (PDF, text, markdown)
 - **Chunks and embeds** a reference knowledge base of company policies, data privacy docs, and operational procedures into a vector store

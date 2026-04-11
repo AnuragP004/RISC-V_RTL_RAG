@@ -35,10 +35,19 @@ cd RISC-V_RTL_RAG
 # Create virtual environment and install dependencies
 python3 -m venv venv
 source venv/bin/activate
-pip install vcdvcd google-generativeai chromadb python-dotenv tqdm
+pip install -r requirements.txt
 
 # Set your Gemini API key
 echo "GEMINI_API_KEY=your_key_here" > pipeline/.env
+```
+
+**`requirements.txt`** (pinned versions):
+```text
+vcdvcd==2.6.0
+google-generativeai==0.8.6
+chromadb==1.5.7
+python-dotenv==1.2.2
+tqdm==4.67.3
 ```
 
 ### 2. Build the RAG Knowledge Base (Optional — pre-built DB ships with the repo)

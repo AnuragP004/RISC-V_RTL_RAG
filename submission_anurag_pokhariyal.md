@@ -495,6 +495,15 @@ None of these prerequisites are met by the current unprivileged single-cycle des
 | Memory interface expansion | **Manual** | Added data memory ports, LSU instantiation, write-back MUX |
 | LUI/AUIPC/JAL/JALR support | **Manual** | Added control cases for instruction types the LLM omitted |
 
+**Development Timeline & Iterative Improvement:** These failures occurred **during the iterative development** of the pipeline, not during the final run. Each failure led to a corresponding improvement in the pipeline's prompts, constraints, or `processor_spec.json`:
+
+- The SRAI bug → led to adding explicit funct7 extraction requirements in the decoder generation prompt
+- The missing memory interface → led to specifying full data memory ports in `processor_spec.json`
+- The ALU hallucination → led to ground-truth encoding injection in the diagnostic prompt
+- The missing instruction types → led to expanding the generation constraints to mandate control logic for all 7 RV32I opcodes
+
+**The result:** When the pipeline is run from scratch today (`rm *.v && python3 main.py`), it generates a fully functional core that passes **39/39 ISA tests without any manual corrections**. The "manual fixes" documented above were part of the engineering process that refined the pipeline — they are now encoded in the prompts and specification, making them reproducible and automated.
+
 ---
 
 ## F. Reflection

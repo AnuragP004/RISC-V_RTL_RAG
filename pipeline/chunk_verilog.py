@@ -1,5 +1,6 @@
 # pipeline/chunk_verilog.py
 import re
+import os
 import json
 from pathlib import Path
 from typing import List, Dict
@@ -243,6 +244,7 @@ def process_all_verilog(raw_dir: str, output_path: str):
         except Exception as e:
             print(f"    ✗ Error: {e}")
     
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, 'w') as f:
         json.dump(all_chunks, f, indent=2)
     

@@ -77,6 +77,19 @@ def run_single_test(sim_binary, hex_path, vcd_path, timeout_s=10):
     return TestResult(test_name, status, reason, details)
 
 def main():
+    # Support single test: python3 test_oracle.py tests/rv32ui-p-add.hex
+    if len(sys.argv) > 1:
+        single = Path(sys.argv[1])
+        if not single.exists():
+            print(f"ERROR: {single} not found")
+            return 1
+        res = run_single_test(DEFAULT_SIM_BINARY, single, DEFAULT_VCD)
+        color = "\033[92m" if res.status == "PASS" else "\033[91m"
+        reset = "\033[0m"
+        print(f"\n  {res.test_name}  {color}{res.status}{reset}  {res.reason}")
+        return 0 if res.status == "PASS" else 1
+
+    # Default: run all tests
     tests = sorted(Path(DEFAULT_TESTS_DIR).glob("rv32ui-p-*.hex"))
     results = []
     
@@ -104,3 +117,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+

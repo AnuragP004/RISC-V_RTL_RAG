@@ -16,7 +16,7 @@
 
 ## Evaluator Quick Start
 
-> **Goal:** Reproduce the full pipeline — from corpus chunking through ISA verification — in under 5 minutes.
+> **Goal:** Verify the generated RV32I core by compiling, simulating, and running the full ISA test suite.
 
 ### Prerequisites
 
@@ -86,11 +86,15 @@ python3 test_oracle.py
 
 Results are printed to stdout and written to `tests/oracle_results.json`.
 
-### 5. Verify a Single Test Manually
+### 5. Verify a Single Test
 
 ```bash
+# Run and evaluate a single ISA test (simulates + parses VCD automatically)
+python3 test_oracle.py tests/rv32ui-p-add.hex
+# → Output: rv32ui-p-add  PASS  gp_equals_1
+
+# Or run the raw simulation only (produces simulation_trace.vcd for manual inspection)
 ./obj_dir/Vtestbench +loadmem=tests/rv32ui-p-add.hex
-# → Produces simulation_trace.vcd
 ```
 
 ### Available CLI Commands
@@ -102,6 +106,20 @@ python3 main.py --target rv32i_core    # Generate only the top-level core
 python3 main.py --list-modules         # List all available module targets
 python3 main.py --spec custom.json     # Use a custom processor specification
 ```
+
+### 6. Test the Full Generation Pipeline (Optional)
+
+To verify that the RAG pipeline can regenerate the core from scratch, delete the generated Verilog files and re-run:
+
+```bash
+# Delete ONLY the generated modules (keep testbench.v and sim_main.cpp)
+rm alu.v branch_unit.v instruction_decoder.v register_file.v program_counter.v load_store_unit.v rv32i_core.v
+
+# Re-run the full pipeline — this will regenerate all modules via RAG, compile, simulate, and self-heal
+python3 main.py
+```
+
+> **Note:** Do NOT delete `testbench.v` or `sim_main.cpp` — these are the hand-written verification infrastructure, not RAG-generated outputs. The pipeline only generates the 7 processor modules listed above.
 
 ---
 
@@ -347,25 +365,45 @@ always @(*) begin
                     2'b00: read_data_out = {{24{mem_data_in[7]}}, mem_data_in[7:0]};
                     // ...
 ```
-
 ---
 
 ## D. Simulation Results
 
-### Verilator Setup & Testbench Approach
+### Verification Infrastructure
 
-The testbench (`testbench.v`) provides:
-- **16KB Instruction Memory** (4096 × 32-bit words) loaded via `+loadmem=<hexfile>` plusarg
-- **16KB Data Memory** with byte-enable write support (matching the LSU's `mem_byte_en` port)
-- **Address aliasing:** `0x8000XXXX` addresses are mapped to `[13:2]` indices so that official `riscv-tests` binaries (linked at `0x80000000`) map correctly without a linker script
+The simulation and verification infrastructure consists of three hand-written files that are **not** RAG-generated — they form the deterministic harness that drives and evaluates the generated core.
 
-The C++ driver (`sim_main.cpp`) runs 10,000 clock cycles with reset deasserted after time 10.
+#### `testbench.v` — Memory Wrapper & Core Instantiation
 
-### Test Oracle
+This Verilog module provides a Harvard-style memory environment for the core:
 
-`test_oracle.py` evaluates each test using only VCD signal observation:
-1. **PC liveness check** — verifies the PC has >1 unique value post-reset (i.e., the core is fetching instructions)
-2. **`gp` (x3) register check** — the official `riscv-tests` framework sets `gp = 1` on `RVTEST_PASS` and `gp = (test_num << 1)` on `RVTEST_FAIL`
+| Component | Details |
+|---|---|
+| **Instruction Memory** | 16KB (4096 × 32-bit words). Loaded at startup from a hex file via the Verilator `+loadmem=<path>` plusarg using `$readmemh`. |
+| **Data Memory** | 16KB (4096 × 32-bit words). Initialized from the same hex file. Supports **byte-granular writes** using the LSU's `mem_byte_en[3:0]` signal — each bit controls one byte lane, enabling correct `SB` and `SH` store behavior. Reads are combinational; writes are synchronous (posedge clk). |
+| **Address Aliasing** | Official `riscv-tests` ELF binaries are linked at VMA `0x80000000`. The testbench maps addresses using `pc[13:2]` as the word index, so `0x80000000` → index `0`, `0x80000004` → index `1`, etc. This eliminates the need for a custom linker script or address translation unit. |
+| **Core Instantiation** | The `rv32i_core` DUT is wired with both instruction and data memory interfaces — instruction fetch path (PC → address, memory → instruction) and data path (ALU result → address, rs2 → write data, memory → read data). |
+
+#### `sim_main.cpp` — Verilator C++ Simulation Driver
+
+This is the C++ entry point that Verilator compiles against to produce the simulation binary (`obj_dir/Vtestbench`):
+
+1. **Context & Args** — Creates a `VerilatedContext` and passes command-line arguments (including `+loadmem=...`) so the testbench can read the hex file path at runtime.
+2. **VCD Tracing** — Enables full signal tracing and opens `simulation_trace.vcd` for waveform output. This file is what the Waveform Critic (Phase 3) and the Test Oracle parse.
+3. **Clock & Reset** — Starts with `clk=0`, `reset=1`. Toggles the clock every time step. **Deasserts reset after time step 10** (~5 clock cycles), giving the core time to initialize.
+4. **Simulation Loop** — Runs for 10,000 clock cycles (20,000 time steps). On each step: toggle clock → evaluate → dump VCD. Exits early if `$finish` is called.
+5. **Output** — Produces `simulation_trace.vcd` containing every signal transition for all 10,000 cycles.
+
+#### `test_oracle.py` — ISA Test Pass/Fail Evaluator
+
+This Python script automates ISA verification by parsing VCD traces:
+
+1. **Iterates** over all `tests/rv32ui-p-*.hex` files
+2. **Runs** the simulation binary (`obj_dir/Vtestbench +loadmem=<test>`) for each test
+3. **Parses** the resulting VCD to check two conditions:
+   - **PC liveness** — the PC must have >1 unique value post-reset (proves the core is fetching)
+   - **`gp` (x3) register** — the official `riscv-tests` framework sets `gp = 1` on `RVTEST_PASS` and `gp = (test_num << 1)` on `RVTEST_FAIL`
+4. **Outputs** results to stdout and writes `tests/oracle_results.json`
 
 ### ISA Test Results: 39/39 rv32ui Tests Passing
 
@@ -480,3 +518,30 @@ This project demonstrates a fundamental limitation: **RAG solves syntax but cann
 The fact that manual fixes were needed for the memory interface and decoder — despite the RAG corpus containing correct reference implementations of both — underscores this gap. The LLM can *read* a reference core that connects a load/store unit, but it cannot *reason* about which wires need to exist in a novel design with a different module decomposition.
 
 EDA generation requires **active, deterministic feedback loops** (simulation-in-the-loop) rather than passive vector retrieval. The "Silicon Reflex" approach — where the VCD waveform itself becomes the critic signal — is a step toward closing this gap, but much work remains.
+
+---
+
+## G. Prior Work & Proof of Work
+
+This is not my first RAG system. I have prior experience building production-grade retrieval-augmented generation pipelines:
+
+### Compliance Auto-Responder — RAG for Healthcare Questionnaires
+
+**Repository:** https://github.com/AnuragP004/almabase
+
+A full-stack RAG application that automates compliance and security questionnaire answering for a healthcare company (MediConnect). The system:
+
+- **Extracts** questions from uploaded documents (PDF, text, markdown)
+- **Chunks and embeds** a reference knowledge base of company policies, data privacy docs, and operational procedures into a vector store
+- **Retrieves** relevant context per question using semantic similarity search
+- **Generates** accurate, citation-backed answers using Google Gemini
+
+| Component | Technology |
+|---|---|
+| **Frontend** | React (Vite) — file uploads, auth, review UI |
+| **Backend** | Python (FastAPI) — document parsing, chunking, AI pipeline orchestration |
+| **Vector Store** | Supabase (PostgreSQL + pgvector) — embeddings storage and similarity search |
+| **LLM** | Google Gemini — embedding generation and answer synthesis |
+
+**Relevance to this submission:** The almabase project demonstrates the same core RAG competencies applied here — document chunking strategy, embedding model selection, vector retrieval, and LLM prompt engineering with grounded context. The key difference is that this RISC-V project required a domain-specific chunker (AST-aware Verilog parsing vs. NLP text splitting) and added a simulation-in-the-loop feedback mechanism that doesn't exist in traditional RAG applications.
+

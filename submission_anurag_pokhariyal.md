@@ -502,7 +502,7 @@ None of these prerequisites are met by the current unprivileged single-cycle des
 - The ALU hallucination → led to ground-truth encoding injection in the diagnostic prompt
 - The missing instruction types → led to expanding the generation constraints to mandate control logic for all 7 RV32I opcodes
 
-**The result:** When the pipeline is run from scratch today (`rm *.v && python3 main.py`), it generates a fully functional core that passes **39/39 ISA tests without any manual corrections**. The "manual fixes" documented above were part of the engineering process that refined the pipeline — they are now encoded in the prompts and specification, making them reproducible and automated.
+**The result:** When the pipeline is run from scratch today (`rm alu.v branch_unit.v instruction_decoder.v register_file.v program_counter.v load_store_unit.v rv32i_core.v && python3 main.py`), it generates a fully functional core that passes **39/39 ISA tests without any manual corrections**. The "manual fixes" documented above were part of the engineering process that refined the pipeline — they are now encoded in the prompts and specification, making them reproducible and automated.
 
 ---
 

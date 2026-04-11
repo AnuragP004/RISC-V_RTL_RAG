@@ -4,88 +4,94 @@ module load_store_unit (
     input  [31:0] write_data,
     input         mem_read,
     input         mem_write,
-    // NOTE: The following ports are required for a functional LSU
-    // and have been added to the provided interface.
     input  [31:0] mem_data_in,
     output reg [31:0] mem_data_out,
     output reg [3:0]  mem_byte_en,
-    
     output reg [31:0] read_data_out
 );
 
-    // RISC-V funct3 assignments for load/store instructions
-    localparam F3_B  = 3'b000; // SB, LB
-    localparam F3_H  = 3'b001; // SH, LH
-    localparam F3_W  = 3'b010; // SW, LW
-    localparam F3_BU = 3'b100; // LBU
-    localparam F3_HU = 3'b101; // LHU
-
-    always_comb begin
-        // Default assignments to prevent latches
-        read_data_out = 32'b0;
+    always @(*) begin
+        // Default assignments to prevent latch inference
         mem_data_out  = 32'b0;
         mem_byte_en   = 4'b0;
+        read_data_out = 32'b0;
 
-        if (mem_read) begin
-            // Load logic
+        if (mem_write) begin
+            // --- Store Logic ---
             case (funct3)
-                F3_B: begin // Load Byte (LB)
+                // SB: Store Byte (funct3 = 3'b000)
+                3'b000: begin
+                    mem_byte_en  = 4'b0001 << addr[1:0];
+                    mem_data_out = write_data << {addr[1:0], 3'b000};
+                end
+                // SH: Store Half-word (funct3 = 3'b001)
+                3'b001: begin
+                    mem_byte_en  = 4'b0011 << {addr[1], 1'b0};
+                    mem_data_out = write_data << {addr[1], 4'b0000};
+                end
+                // SW: Store Word (funct3 = 3'b010)
+                3'b010: begin
+                    mem_byte_en  = 4'b1111;
+                    mem_data_out = write_data;
+                end
+                default: begin
+                    mem_byte_en  = 4'b0;
+                    mem_data_out = 32'b0;
+                end
+            endcase
+        end
+        else if (mem_read) begin
+            // --- Load Logic ---
+            case (funct3)
+                // LB: Load Byte, sign-extended (funct3 = 3'b000)
+                3'b000: begin
+                    reg [7:0] byte_data;
                     case (addr[1:0])
-                        2'b00: read_data_out = {{24{mem_data_in[7]}},  mem_data_in[7:0]};
-                        2'b01: read_data_out = {{24{mem_data_in[15]}}, mem_data_in[15:8]};
-                        2'b10: read_data_out = {{24{mem_data_in[23]}}, mem_data_in[23:16]};
-                        2'b11: read_data_out = {{24{mem_data_in[31]}}, mem_data_in[31:24]};
+                        2'b00: byte_data = mem_data_in[7:0];
+                        2'b01: byte_data = mem_data_in[15:8];
+                        2'b10: byte_data = mem_data_in[23:16];
+                        2'b11: byte_data = mem_data_in[31:24];
                     endcase
+                    read_data_out = {{24{byte_data[7]}}, byte_data};
                 end
-                F3_H: begin // Load Half-word (LH)
-                    if (addr[1] == 1'b0) begin // Aligned address: addr[1:0] is 00
-                        read_data_out = {{16{mem_data_in[15]}}, mem_data_in[15:0]};
-                    end else begin // Aligned address: addr[1:0] is 10
-                        read_data_out = {{16{mem_data_in[31]}}, mem_data_in[31:16]};
+                // LH: Load Half-word, sign-extended (funct3 = 3'b001)
+                3'b001: begin
+                    reg [15:0] half_data;
+                    if (addr[1] == 1'b0) begin
+                        half_data = mem_data_in[15:0];
+                    end else begin
+                        half_data = mem_data_in[31:16];
                     end
+                    read_data_out = {{16{half_data[15]}}, half_data};
                 end
-                F3_W: begin // Load Word (LW)
+                // LW: Load Word (funct3 = 3'b010)
+                3'b010: begin
                     read_data_out = mem_data_in;
                 end
-                F3_BU: begin // Load Byte Unsigned (LBU)
-                     case (addr[1:0])
-                        2'b00: read_data_out = {24'b0, mem_data_in[7:0]};
-                        2'b01: read_data_out = {24'b0, mem_data_in[15:8]};
-                        2'b10: read_data_out = {24'b0, mem_data_in[23:16]};
-                        2'b11: read_data_out = {24'b0, mem_data_in[31:24]};
+                // LBU: Load Byte, zero-extended (funct3 = 3'b100)
+                3'b100: begin
+                    reg [7:0] byte_data;
+                    case (addr[1:0])
+                        2'b00: byte_data = mem_data_in[7:0];
+                        2'b01: byte_data = mem_data_in[15:8];
+                        2'b10: byte_data = mem_data_in[23:16];
+                        2'b11: byte_data = mem_data_in[31:24];
                     endcase
+                    read_data_out = {24'b0, byte_data};
                 end
-                F3_HU: begin // Load Half-word Unsigned (LHU)
-                    if (addr[1] == 1'b0) begin // Aligned address: addr[1:0] is 00
-                        read_data_out = {16'b0, mem_data_in[15:0]};
-                    end else begin // Aligned address: addr[1:0] is 10
-                        read_data_out = {16'b0, mem_data_in[31:16]};
+                // LHU: Load Half-word, zero-extended (funct3 = 3'b101)
+                3'b101: begin
+                    reg [15:0] half_data;
+                    if (addr[1] == 1'b0) begin
+                        half_data = mem_data_in[15:0];
+                    end else begin
+                        half_data = mem_data_in[31:16];
                     end
+                    read_data_out = {16'b0, half_data};
                 end
-                default: read_data_out = 32'b0;
-            endcase
-        end else if (mem_write) begin
-            // Store logic
-            // Shift write data to correct byte lane based on address offset
-            case (addr[1:0])
-                2'b00: mem_data_out = write_data;
-                2'b01: mem_data_out = write_data << 8;
-                2'b10: mem_data_out = write_data << 16;
-                2'b11: mem_data_out = write_data << 24;
-            endcase
-            
-            // Generate byte enables based on funct3 and address offset
-            case (funct3)
-                F3_B: begin // Store Byte (SB)
-                    mem_byte_en = 1'b1 << addr[1:0];
+                default: begin
+                    read_data_out = 32'b0;
                 end
-                F3_H: begin // Store Half-word (SH)
-                    mem_byte_en = 2'b11 << addr[1:0];
-                end
-                F3_W: begin // Store Word (SW)
-                    mem_byte_en = 4'b1111;
-                end
-                default: mem_byte_en = 4'b0;
             endcase
         end
     end

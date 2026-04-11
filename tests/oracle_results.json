@@ -1,0 +1,197 @@
+[
+  {
+    "test": "rv32ui-p-add",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-addi",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-and",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-andi",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-auipc",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-beq",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-bge",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-bgeu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-blt",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-bltu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-bne",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-fence_i",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-jal",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-jalr",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lb",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lbu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lh",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lhu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lui",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-lw",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-or",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-ori",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sb",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sh",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-simple",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sll",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-slli",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-slt",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-slti",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sltiu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sltu",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sra",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-srai",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-srl",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-srli",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sub",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-sw",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-xor",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  },
+  {
+    "test": "rv32ui-p-xori",
+    "status": "PASS",
+    "reason": "gp_equals_1"
+  }
+]

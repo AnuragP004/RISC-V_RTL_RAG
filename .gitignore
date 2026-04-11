@@ -15,6 +15,7 @@ simulation_trace.vcd
 # Runtime backups and databases
 backups/
 data/
+chroma_db/
 corpus/chunks/
 
 # Python cache

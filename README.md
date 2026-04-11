@@ -81,9 +81,23 @@ python3 main.py --list-modules
 
 # Use a custom processor specification
 python3 main.py --spec my_custom_spec.json
+
+# Run measured ISA sweep (no filename-based scoring)
+bash run_all_tests.sh
 ```
 
----
+## ISA Validation Workflow
+
+Validation is executed by `test_oracle.py`, which classifies each run from
+observed simulation signatures in `simulation_trace.vcd` rather than filename
+pattern matching.
+
+- `PASS`: deterministic signature check satisfied.
+- `FAIL`: execution/signature check failed.
+- `INCONCLUSIVE`: execution observed, but no ground-truth correctness contract
+  exists in the current harness for that program.
+
+The oracle writes machine-readable output to `tests/oracle_results.json`.
 
 ## Architecture
 
@@ -94,8 +108,9 @@ RISC-V_RTL_RAG/
 ├── main.py                      # ★ Unified push-button compiler (CLI)
 ├── processor_spec.json          # Configuration-driven module definitions
 ├── agentic_debug_loop.py        # Standalone Silicon Reflex debug script
+├── test_oracle.py               # VCD-based ISA test pass/fail oracle
 ├── sim_main.cpp                 # C++ Verilator simulation driver
-├── rv32ui-p-add.hex             # RISC-V ADD test payload (x3 = 5+7 = 12)
+├── run_all_tests.sh             # Shell wrapper for ISA test sweep
 │
 ├── pipeline/                    # RAG integration layer
 │   ├── .env                     # API keys (not committed)
@@ -108,10 +123,12 @@ RISC-V_RTL_RAG/
 │   ├── alu.v                    # Arithmetic Logic Unit
 │   ├── branch_unit.v            # Branch condition evaluator
 │   ├── instruction_decoder.v    # RV32I instruction decoder
+│   ├── load_store_unit.v        # Load/Store byte-enable logic
 │   ├── program_counter.v        # PC with branch support
 │   ├── register_file.v          # 32x32 register file
 │   └── testbench.v              # Simulation harness
 │
+├── tests/                       # rv32ui ISA test hex files + oracle results
 ├── corpus/                      # Reference Verilog corpus for RAG
 ├── backups/                     # Auto-generated pre-patch snapshots
 └── obj_dir/                     # Verilator build artifacts (generated)

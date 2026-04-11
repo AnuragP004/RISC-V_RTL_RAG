@@ -15,13 +15,14 @@
       "pc":         "TOP.testbench.dut.u_program_counter.pc[31:0]",
       "reg_write":  "TOP.testbench.dut.reg_write",
       "alu_result": "TOP.testbench.dut.u_alu.result[31:0]",
-      "write_data": "TOP.testbench.dut.write_data[31:0]"
+      "write_data": "TOP.testbench.dut.u_register_file.write_data[31:0]",
+      "data_addr":  "TOP.testbench.dut.data_mem_addr[31:0]"
     },
     "functional_checks": [
       {
         "signal": "TOP.testbench.dut.u_register_file.registers[3][31:0]",
-        "expected_value": 12,
-        "description": "ADD test: x3 = 5 + 7 = 12"
+        "expected_value": 1,
+        "description": "ADD test: gp (x3) == 1 (pass)"
       }
     ]
   },
@@ -59,7 +60,7 @@
       "file": "instruction_decoder.v",
       "display_name": "Instruction Decoder",
       "interface": "module decoder (\n    input  [31:0] instr,\n    output reg [6:0]  opcode,\n    output reg [4:0]  rd,\n    output reg [2:0]  funct3,\n    output reg [4:0]  rs1,\n    output reg [4:0]  rs2,\n    output reg [6:0]  funct7,\n    output reg [31:0] imm\n);",
-      "constraints": "Decode ALL RV32I immediate types: I, S, B, U, J. Sign-extend correctly. Use always @(*) for pure combinational decode logic."
+      "constraints": "Decode ALL RV32I immediate types: I, S, B, U, J. Sign-extend correctly. Extract funct7 for I-type shift instructions (SLLI/SRLI/SRAI). Use always @(*) for pure combinational decode logic."
     },
 
     "register_file": {
@@ -78,16 +79,16 @@
 
     "load_store_unit": {
       "file": "load_store_unit.v",
-      "display_name": "load_store_unit",
-      "interface": "module load_store_unit (\n    input  [2:0]  funct3,\n    input  [31:0] addr,\n    input  [31:0] write_data,\n    input         mem_read,\n    input         mem_write,\n    output reg [31:0] read_data_out\n);",
+      "display_name": "Load/Store Unit",
+      "interface": "module load_store_unit (\n    input  [2:0]  funct3,\n    input  [31:0] addr,\n    input  [31:0] write_data,\n    input         mem_read,\n    input         mem_write,\n    input  [31:0] mem_data_in,\n    output reg [31:0] mem_data_out,\n    output reg [3:0]  mem_byte_en,\n    output reg [31:0] read_data_out\n);",
       "constraints": "Implement LW, LH, LB, LHU, LBU, SW, SH, SB based on funct3. Provide default assignments for all combinational outputs."
     },
 
     "rv32i_core": {
       "file": "rv32i_core.v",
       "display_name": "RV32I Core (Top-Level Stitcher)",
-      "interface": "module rv32i_core (\n    input  clk,\n    input  reset,\n    input  [31:0] instr_mem_data,\n    output [31:0] instr_mem_addr\n);",
-      "constraints": "[CRITICAL ERROR RECOVERY - PORT MISMATCHES]\nYou MUST instantiate sub-modules using the EXACT port names below:\n1. program_counter: (input clk, reset, [31:0] branch_target, pc_sel, output reg [31:0] pc)\n2. decoder: (input [31:0] instr, output reg [6:0] opcode, [4:0] rd, [2:0] funct3, [4:0] rs1, [4:0] rs2, [6:0] funct7, [31:0] imm)\n3. register_file: (input clk, [4:0] rs1, [4:0] rs2, [4:0] rd, [31:0] write_data, reg_write, output [31:0] rs1_data, [31:0] rs2_data)\n4. branch_unit: (input [31:0] rs1_data, [31:0] rs2_data, [2:0] funct3, output reg branch_taken)\n5. alu: (input [31:0] a, [31:0] b, [3:0] alu_control, output reg [31:0] result, output zero)\n\n[ROUTING INSTRUCTIONS]\n- Connect instr_mem_addr to pc.\n- Connect instr_mem_data to decoder's instr input.\n- Declare intermediate wires to route datapath signals.\n- Write a combinational always @(*) block for the control unit.\n- Map alu_control using the EXACT localparam values from the ALU encodings.",
+      "interface": "module rv32i_core (\n    input  clk,\n    input  reset,\n    input  [31:0] instr_mem_data,\n    output [31:0] instr_mem_addr,\n    output [31:0] data_mem_addr,\n    output [31:0] data_mem_wdata,\n    output        data_mem_we,\n    output [3:0]  data_mem_byte_en,\n    input  [31:0] data_mem_rdata\n);",
+      "constraints": "[CRITICAL ERROR RECOVERY - PORT MISMATCHES]\nYou MUST instantiate sub-modules using the EXACT port names below:\n1. program_counter: (input clk, reset, [31:0] branch_target, pc_sel, output reg [31:0] pc)\n2. decoder: (input [31:0] instr, output reg [6:0] opcode, [4:0] rd, [2:0] funct3, [4:0] rs1, [4:0] rs2, [6:0] funct7, [31:0] imm)\n3. register_file: (input clk, [4:0] rs1, [4:0] rs2, [4:0] rd, [31:0] write_data, reg_write, output [31:0] rs1_data, [31:0] rs2_data)\n4. branch_unit: (input [31:0] rs1_data, [31:0] rs2_data, [2:0] funct3, output reg branch_taken)\n5. alu: (input [31:0] a, [31:0] b, [3:0] alu_control, output reg [31:0] result, output zero)\n6. load_store_unit: (input [2:0] funct3, [31:0] addr, [31:0] write_data, mem_read, mem_write, [31:0] mem_data_in, output reg [31:0] mem_data_out, [3:0] mem_byte_en, [31:0] read_data_out)\n\n[ROUTING INSTRUCTIONS]\n- Connect instr_mem_addr to pc.\n- Connect instr_mem_data to decoder's instr input.\n- Connect data_mem_addr to alu_result.\n- Implement write-back MUX: ALU result (default), memory read (loads), PC+4 (JAL/JALR).\n- Implement ALU source A MUX: rs1_data (default), pc (AUIPC).\n- Implement PC target MUX: branch_target (B-type/JAL), jalr_target (JALR).\n- Map alu_control using the EXACT localparam values from the ALU encodings.",
       "is_top_level": true
     }
   }

@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
     top->clk = 0;
     top->reset = 1;
 
-    while (!contextp->gotFinish() && main_time < 200) {
+    while (!contextp->gotFinish() && main_time < 20000) {
         main_time++;
         top->clk = !top->clk;
         if (main_time > 10) top->reset = 0;

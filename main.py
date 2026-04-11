@@ -51,7 +51,8 @@ HARDWARE_RULES = """\
 Use non-blocking assignments (<=) in clocked blocks. \
 Never use blocking assignments (=) in clocked blocks. \
 Use always @(*) for combinational logic. \
-Provide default assignments to prevent latches."""
+Provide default assignments to prevent latches. \
+Variables assigned inside always blocks MUST be declared as 'reg'. Do not assign to 'wire' inside procedural blocks."""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -186,7 +187,7 @@ def generate_single_module(spec: Dict, module_name: str):
         return
 
     log_info(f"Generating {display_name}...")
-    generate_component(display_name, interface, enriched_constraints)
+    generate_component(display_name, interface, enriched_constraints, filename=mod["file"])
 
     if target_file.exists():
         log_ok(f"{mod['file']} generated successfully")
@@ -227,7 +228,7 @@ def run_initial_generation(spec: Dict):
         enriched_constraints += f"[MODULE-SPECIFIC CONSTRAINTS]\n{mod['constraints']}"
 
         log_info(f"Generating {display_name}...")
-        generate_component(display_name, mod["interface"], enriched_constraints)
+        generate_component(display_name, mod["interface"], enriched_constraints, filename=mod["file"])
 
         if target.exists():
             log_ok(f"{mod['file']} generated successfully")
@@ -294,7 +295,7 @@ def compile_and_simulate(spec: Dict) -> Tuple[bool, str]:
     log_ok("Verilator compilation succeeded")
 
     # ── Step 2: Execute Simulation ──────────────────────────────────────
-    sim_cmd = [str(SIM_BINARY), "+loadmem"]
+    sim_cmd = [str(SIM_BINARY), f"+loadmem=tests/{spec['project']['test_hex']}"]
     log_info(f"Running simulation: {sim_cmd[0]}")
 
     result = subprocess.run(

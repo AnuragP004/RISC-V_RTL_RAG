@@ -42,7 +42,7 @@ def retrieve_context(query, k=3):
             context_str += f"// Chunk {idx+1}\n{doc}\n\n"
     return context_str
 
-def generate_component(component_name, interface_definition, specific_warnings=""):
+def generate_component(component_name, interface_definition, specific_warnings="", filename=None):
     """Orchestrates RAG to generate a specific RISC-V component."""
     
     # 1. Retrieve Context
@@ -58,6 +58,7 @@ def generate_component(component_name, interface_definition, specific_warnings="
     2. Never use blocking assignments (=) in clocked blocks.
     3. Use always @(*) or always_comb for ALL combinational logic. Do not write manual sensitivity lists.
     4. Provide default assignments at the top of every combinational block to prevent unintended latch inference.
+    5. Variables assigned inside always blocks MUST be declared as 'reg' (or output reg). Do not assign to 'wire' inside procedural blocks.
     
     [TASK]
     Generate the {component_name} module.
@@ -82,7 +83,10 @@ def generate_component(component_name, interface_definition, specific_warnings="
     clean_code = response.text.replace("```verilog\n", "").replace("```", "").strip()
     
     # 3. Save to File
-    filename = f"{component_name.lower().replace(' ', '_')}.v"
+    if not filename:
+        safe_name = component_name.lower().replace(' ', '_').replace('/', '_')
+        filename = f"{safe_name}.v"
+        
     with open(filename, "w") as f:
         f.write(clean_code)
     

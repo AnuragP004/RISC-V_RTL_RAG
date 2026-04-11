@@ -5,31 +5,45 @@ module branch_unit (
     output reg    branch_taken
 );
 
-    // Combinational logic for branch condition evaluation
+    // Branch comparison logic
     always @(*) begin
-        // Default assignment to prevent latches.
-        // The branch is not taken by default.
+        // Default assignment to prevent unintended latch inference
         branch_taken = 1'b0;
 
         case (funct3)
-            3'b000: // BEQ: Branch if Equal
-                if (rs1_data == rs2_data)
+            3'b000: begin // BEQ: Branch if Equal
+                if (rs1_data == rs2_data) begin
                     branch_taken = 1'b1;
-            3'b001: // BNE: Branch if Not Equal
-                if (rs1_data != rs2_data)
+                end
+            end
+            3'b001: begin // BNE: Branch if Not Equal
+                if (rs1_data != rs2_data) begin
                     branch_taken = 1'b1;
-            3'b100: // BLT: Branch if Less Than (signed)
-                if ($signed(rs1_data) < $signed(rs2_data))
+                end
+            end
+            3'b100: begin // BLT: Branch if Less Than (signed)
+                if ($signed(rs1_data) < $signed(rs2_data)) begin
                     branch_taken = 1'b1;
-            3'b101: // BGE: Branch if Greater Than or Equal (signed)
-                if ($signed(rs1_data) >= $signed(rs2_data))
+                end
+            end
+            3'b101: begin // BGE: Branch if Greater Than or Equal (signed)
+                if ($signed(rs1_data) >= $signed(rs2_data)) begin
                     branch_taken = 1'b1;
-            3'b110: // BLTU: Branch if Less Than (unsigned)
-                if (rs1_data < rs2_data)
+                end
+            end
+            3'b110: begin // BLTU: Branch if Less Than (unsigned)
+                if (rs1_data < rs2_data) begin
                     branch_taken = 1'b1;
-            3'b111: // BGEU: Branch if Greater Than or Equal (unsigned)
-                if (rs1_data >= rs2_data)
+                end
+            end
+            3'b111: begin // BGEU: Branch if Greater Than or Equal (unsigned)
+                if (rs1_data >= rs2_data) begin
                     branch_taken = 1'b1;
+                end
+            end
+            default: begin
+                branch_taken = 1'b0;
+            end
         endcase
     end
 
